@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -40,11 +41,10 @@ namespace PerfGcCollector
                 }
             }
 
-            Console.WriteLine("Loaded symbols from {0}", perfMapFile);
+            Console.WriteLine($"Loaded {map.Count} symbols from {perfMapFile}");
 
             var symbols = new SortedDictionary<ulong, string>();
 
-            //using var input = File.OpenRead(@"E:\perf\perf.data");
             using var input = Console.OpenStandardInput();
 
             var fileHeader = input.Read<PerfPipeFileHeader>();
@@ -55,19 +55,15 @@ namespace PerfGcCollector
                 return;
             }
 
-            Console.WriteLine($"{fileHeader.Magic:x2}");
-
             bool endOfFile = false;
 
-            long expectedPosition = 0; 
+            long expectedPosition = 0;
             long currentType = 0;
 
             if (input.CanSeek)
             {
                 expectedPosition = input.Position;
             }
-
-            long sampleCount = 0;
 
             PerfRecordIndexes indexes = null;
 
@@ -96,23 +92,17 @@ namespace PerfGcCollector
                         break;
 
                     case 1:
-                        // PERF_RECORD_MMAP ?
                         var perfRecordMmap = new PerfRecordMmap(input, header);
 
                         if (perfRecordMmap.Pid == pid)
                         {
-                            var filename = Encoding.ASCII.GetString(perfRecordMmap.Filename);
+                            var filename = ReadString(perfRecordMmap.Filename);
 
                             symbols.Add(perfRecordMmap.Addr, filename);
 
-                            if (filename.Contains("libcoreclr.so"))
-                            {
-                            }
-
+                            ReadSymbols(filename, perfRecordMmap.Addr, symbols);
                         }
 
-
-                        //input.Skip(header.GetRemainingBytes());
                         break;
 
                     case 3:
@@ -136,45 +126,34 @@ namespace PerfGcCollector
 
                     case 9:
                         var sample = new PerfRecordSample(input, header, indexes);
-                        sampleCount++;
 
-                        if (sample.Pid != 0 || sample.Tid != 0)
+                        if (sample.Pid == pid)
                         {
-                            if (sample.Pid == pid)
+                            Console.WriteLine("Sample:");
+
+                            foreach (var frame in sample.Callchain)
                             {
-                                Console.WriteLine("Sample:");
+                                string symbol;
 
-                                foreach (var frame in sample.Callchain)
+                                if (!map.TryGetValue(frame, out symbol))
                                 {
-                                    string symbol;
+                                    symbol = "UNKNOWN";
 
-                                    if (!map.TryGetValue(frame, out symbol))
+                                    foreach (var kvp in symbols)
                                     {
-                                        symbol = "UNKNOWN";
-
-                                        foreach (var kvp in symbols)
+                                        if (kvp.Key < frame)
                                         {
-                                            if (kvp.Key < frame)
-                                            {
-                                                symbol = kvp.Value;
-                                            }
-                                            else
-                                            {
-                                                break;
-                                            }
+                                            symbol = kvp.Value;
+                                        }
+                                        else
+                                        {
+                                            break;
                                         }
                                     }
-                                    else
-                                    {
-
-                                    }
-
-
-
-                                    Console.WriteLine(symbol);
                                 }
-                            }
 
+                                Console.WriteLine(symbol);
+                            }
                         }
 
                         break;
@@ -184,51 +163,26 @@ namespace PerfGcCollector
 
                         if (perfRecordMmap2.Pid == pid)
                         {
-                            var filename = Encoding.ASCII.GetString(perfRecordMmap2.filename);
+                            var filename = ReadString(perfRecordMmap2.filename);
 
                             symbols.Add(perfRecordMmap2.Addr, filename);
 
-                            //if (filename.Contains("libcoreclr.so"))
-                            //{
-                            //    foreach (var line in File.ReadLines(@"E:\perf\libcoreclr.txt"))
-                            //    {
-                            //        var values = line.Split(' ', 3);
-
-                            //        if (values[1] == "U")
-                            //        {
-                            //            continue;
-                            //        }
-
-                            //        try
-                            //        {
-                            //            if (values[0].Trim().Length == 0)
-                            //            {
-                            //                continue;
-                            //            }
-
-                            //            var addr = Convert.ToUInt64(values[0], 16);
-
-                            //            map[perfRecordMmap2.Addr + addr] = values[2];
-                            //            symbols[perfRecordMmap2.Addr + addr] = values[2];
-                            //        }
-                            //        catch (FormatException)
-                            //        {
-                            //            continue;
-                            //        }
-                            //    }
-                            //}
+                            Console.WriteLine("Attempting to extract symbols for " + filename);
+                            
+                            ReadSymbols(filename, perfRecordMmap2.Addr, symbols);
                         }
 
-                        //Console.WriteLine("PerfRecordMmap2: " + Encoding.ASCII.GetString(perfRecordMmap2.filename));
                         break;
 
                     case 17:
-                        var perfRecordKSymbol = new PerfRecordKSymbol(input, header);
-                        Console.WriteLine("KSymbol: " + Encoding.ASCII.GetString(perfRecordKSymbol.Name));
+                        //var perfRecordKSymbol = new PerfRecordKSymbol(input, header);
+                        //Console.WriteLine("KSymbol: " + Encoding.ASCII.GetString(perfRecordKSymbol.Name));
+                        input.Skip(header.GetRemainingBytes());
                         break;
 
                     case 18:
-                        var perfRecordBpfEvent = new PerfRecordBpfEvent(input, header);
+                        //var perfRecordBpfEvent = new PerfRecordBpfEvent(input, header);
+                        input.Skip(header.GetRemainingBytes());
                         break;
 
                     case 64:
@@ -236,9 +190,9 @@ namespace PerfGcCollector
 
                         foreach (ulong value in Enum.GetValues(typeof(PerfEventSampleFormat)))
                         {
-                            if (((ulong)perfRecordHeaderAttr.Attr.SampleType & value) == value)
+                            if (((ulong) perfRecordHeaderAttr.Attr.SampleType & value) == value)
                             {
-                                Console.WriteLine((PerfEventSampleFormat)value);
+                                Console.WriteLine((PerfEventSampleFormat) value);
                             }
                         }
 
@@ -252,32 +206,94 @@ namespace PerfGcCollector
                         break;
 
                     case 73:
-                        var perfRecordThreadMap = PerfRecordThreadMap.Read(input, header);
+                        //var perfRecordThreadMap = PerfRecordThreadMap.Read(input, header);
+                        input.Skip(header.GetRemainingBytes());
                         break;
 
                     case 74:
-                        var perfRecordCpuMap = new PerfRecordCpuMap(input, header);
+                        //var perfRecordCpuMap = new PerfRecordCpuMap(input, header);
+                        input.Skip(header.GetRemainingBytes());
                         break;
 
                     case 78:
-                        var perfRecordEventUpdate = PerfRecordEventUpdate.Read(input, header);
+                        //var perfRecordEventUpdate = PerfRecordEventUpdate.Read(input, header);
+                        input.Skip(header.GetRemainingBytes());
                         break;
 
                     case 79:
-                        var perfRecordTimeConv = PerfRecordTimeConv.Read(input, header);
+                        //var perfRecordTimeConv = PerfRecordTimeConv.Read(input, header);
+                        input.Skip(header.GetRemainingBytes());
                         break;
 
                     case 80:
-                        var perfRecordHeaderFeature = PerfRecordHeaderFeature.Read(input, header);
+                        //var perfRecordHeaderFeature = PerfRecordHeaderFeature.Read(input, header);
+                        input.Skip(header.GetRemainingBytes());
                         break;
 
                     default:
                         throw new NotSupportedException("Header not supported: " + header.Type);
+                }
+            }
+        }
 
+        private static string ReadString(byte[] data)
+        {
+            int length = 0;
 
+            for (length = 0; length < data.Length; length++)
+            {
+                if (data[length] == 0x0)
+                {
+                    break;
                 }
             }
 
+            return Encoding.ASCII.GetString(data.AsSpan(0, length));
+        }
+
+        private static void ReadSymbols(string filename, ulong baseAddress, SortedDictionary<ulong, string> symbols)
+        {
+            if (!File.Exists(filename))
+            {
+                Console.WriteLine("{0} does not exist", filename);
+                return;
+            }
+
+            var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = "nm",
+                Arguments = $"-C --defined-only -a -v {filename}",
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+
+            while (!process.StandardOutput.EndOfStream)
+            {
+                var line = process.StandardOutput.ReadLine();
+                var values = line.Split(' ', 3);
+
+                if (values[1] == "U")
+                {
+                    continue;
+                }
+
+                try
+                {
+                    if (values[0].Trim().Length == 0)
+                    {
+                        continue;
+                    }
+
+                    var addr = Convert.ToUInt64(values[0], 16);
+
+                    symbols[baseAddress + addr] = values[2];
+                }
+                catch (FormatException)
+                {
+                    continue;
+                }
+            }
         }
     }
 
@@ -321,84 +337,55 @@ namespace PerfGcCollector
     [StructLayout(LayoutKind.Explicit, Pack = 1)]
     public readonly struct PerfEventAttr
     {
-        [FieldOffset(0)]
-        public readonly uint Type;
+        [FieldOffset(0)] public readonly uint Type;
 
-        [FieldOffset(4)]
-        public readonly uint Size;
+        [FieldOffset(4)] public readonly uint Size;
 
-        [FieldOffset(8)]
-        public readonly ulong Config;
+        [FieldOffset(8)] public readonly ulong Config;
 
-        [FieldOffset(16)]
-        public readonly ulong SamplePeriod;
-        [FieldOffset(16)]
-        public readonly ulong SampleFreq;
+        [FieldOffset(16)] public readonly ulong SamplePeriod;
+        [FieldOffset(16)] public readonly ulong SampleFreq;
 
-        [FieldOffset(24)]
-        public readonly PerfEventSampleFormat SampleType;
+        [FieldOffset(24)] public readonly PerfEventSampleFormat SampleType;
 
-        [FieldOffset(32)]
-        public readonly ulong ReadFormat;
+        [FieldOffset(32)] public readonly ulong ReadFormat;
 
-        [FieldOffset(40)]
-        public readonly PerfEventAttrFlags Flags;
+        [FieldOffset(40)] public readonly PerfEventAttrFlags Flags;
 
-        [FieldOffset(48)]
-        public readonly uint WakeupEvents;
-        [FieldOffset(48)]
-        public readonly uint WakeupWatermark;
+        [FieldOffset(48)] public readonly uint WakeupEvents;
+        [FieldOffset(48)] public readonly uint WakeupWatermark;
 
-        [FieldOffset(52)]
-        public readonly uint BpType;
+        [FieldOffset(52)] public readonly uint BpType;
 
-        [FieldOffset(56)]
-        public readonly ulong BpAddr;
-        [FieldOffset(56)]
-        public readonly ulong KprobeFunc;
-        [FieldOffset(56)]
-        public readonly ulong UprobePath;
-        [FieldOffset(56)]
-        public readonly ulong Config1;
+        [FieldOffset(56)] public readonly ulong BpAddr;
+        [FieldOffset(56)] public readonly ulong KprobeFunc;
+        [FieldOffset(56)] public readonly ulong UprobePath;
+        [FieldOffset(56)] public readonly ulong Config1;
 
-        [FieldOffset(64)]
-        public readonly ulong BpLen;
-        [FieldOffset(64)]
-        public readonly ulong KprobeAddr;
-        [FieldOffset(64)]
-        public readonly ulong ProbeOffset;
-        [FieldOffset(64)]
-        public readonly ulong Config2;
+        [FieldOffset(64)] public readonly ulong BpLen;
+        [FieldOffset(64)] public readonly ulong KprobeAddr;
+        [FieldOffset(64)] public readonly ulong ProbeOffset;
+        [FieldOffset(64)] public readonly ulong Config2;
 
-        [FieldOffset(72)]
-        public readonly ulong BranchSampleType;
+        [FieldOffset(72)] public readonly ulong BranchSampleType;
 
-        [FieldOffset(80)]
-        public readonly ulong SampleRegsUser;
+        [FieldOffset(80)] public readonly ulong SampleRegsUser;
 
-        [FieldOffset(88)]
-        public readonly uint SampleStackUser;
+        [FieldOffset(88)] public readonly uint SampleStackUser;
 
-        [FieldOffset(92)]
-        public readonly int Clockid;
+        [FieldOffset(92)] public readonly int Clockid;
 
-        [FieldOffset(96)]
-        public readonly ulong SampleRegsIntr;
+        [FieldOffset(96)] public readonly ulong SampleRegsIntr;
 
-        [FieldOffset(104)]
-        public readonly uint AuxWatermark;
+        [FieldOffset(104)] public readonly uint AuxWatermark;
 
-        [FieldOffset(108)]
-        public readonly ushort SampleMaxStack;
+        [FieldOffset(108)] public readonly ushort SampleMaxStack;
 
-        [FieldOffset(110)]
-        public readonly ushort Reserved2;
+        [FieldOffset(110)] public readonly ushort Reserved2;
 
-        [FieldOffset(112)]
-        public readonly uint AuxSampleSize;
+        [FieldOffset(112)] public readonly uint AuxSampleSize;
 
-        [FieldOffset(116)]
-        public readonly uint Reserved3;
+        [FieldOffset(116)] public readonly uint Reserved3;
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -605,12 +592,12 @@ namespace PerfGcCollector
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public readonly struct PerfRecordKSymbol
     {
-
         public readonly PerfEventHeader Header;
         public readonly ulong Addr;
         public readonly uint Len;
         public readonly ushort KsymType;
         public readonly ushort Flags;
+
         public readonly byte[] Name;
         //public readonly SampleId SampleId;
 
@@ -650,6 +637,7 @@ namespace PerfGcCollector
         public readonly PerfBpfEventType Type;
         public readonly ushort Flags;
         public readonly uint Id;
+
         public readonly byte[] Tag;
         //public readonly SampleId SampleId;
 
@@ -660,7 +648,9 @@ namespace PerfGcCollector
             Flags = stream.Read<ushort>();
             Id = stream.Read<uint>();
 
-            var remainingBytes = header.GetRemainingBytes() - sizeof(PerfBpfEventType) - sizeof(ushort) - sizeof(uint);// - sizeof(SampleId);
+            var remainingBytes =
+                header.GetRemainingBytes() - sizeof(PerfBpfEventType) - sizeof(ushort) -
+                sizeof(uint); // - sizeof(SampleId);
             //var remainingBytes = header.GetRemainingBytes() - sizeof(PerfBpfEventType) - sizeof(ushort) - sizeof(uint) - sizeof(SampleId);
             Tag = stream.ReadArray<byte>(remainingBytes);
             //SampleId = stream.Read<SampleId>();
@@ -683,6 +673,7 @@ namespace PerfGcCollector
         public readonly uint Ppid;
         public readonly uint Tid;
         public readonly uint Ptid;
+
         public readonly ulong Time;
         //public readonly SampleId SampleId;
 
@@ -736,6 +727,7 @@ namespace PerfGcCollector
         public readonly ulong Ino_generation;
         public readonly uint Prot;
         public readonly uint Flags;
+
         public readonly byte[] filename;
         //public readonly SampleId SampleId;
 
@@ -785,7 +777,7 @@ namespace PerfGcCollector
         PERF_SAMPLE_PHYS_ADDR = 1U << 19,
         PERF_SAMPLE_AUX = 1U << 20,
 
-        PERF_SAMPLE_MAX = 1U << 21,     /* non-ABI */
+        PERF_SAMPLE_MAX = 1U << 21, /* non-ABI */
 
         __PERF_SAMPLE_CALLCHAIN_EARLY = 1U << 63 /* non-ABI; internal use */
     }
@@ -808,9 +800,9 @@ namespace PerfGcCollector
         public ulong Identifier => Array[_indexes.Identifier];
         public ulong Ip => Array[_indexes.Ip];
 
-        public uint Pid => (uint)(Array[_indexes.Pid] & LOW_MASK);
+        public uint Pid => (uint) (Array[_indexes.Pid] & LOW_MASK);
 
-        public uint Tid => (uint)(Array[_indexes.Tid] >> 32);
+        public uint Tid => (uint) (Array[_indexes.Tid] >> 32);
 
         public ulong Time => Array[_indexes.Time];
 
@@ -820,9 +812,9 @@ namespace PerfGcCollector
 
         public ulong StreamId => Array[_indexes.StreamId];
 
-        public uint Cpu => (uint)(Array[_indexes.Cpu] & LOW_MASK);
+        public uint Cpu => (uint) (Array[_indexes.Cpu] & LOW_MASK);
 
-        public uint Res => (uint)(Array[_indexes.Res] >> 32);
+        public uint Res => (uint) (Array[_indexes.Res] >> 32);
 
         public ulong Period => Array[_indexes.Period];
 
@@ -832,7 +824,7 @@ namespace PerfGcCollector
             {
                 var count = Array[_indexes.Callchain];
 
-                return Array.AsSpan().Slice(_indexes.Callchain, (int)count);
+                return Array.AsSpan().Slice(_indexes.Callchain, (int) count);
             }
         }
     }
