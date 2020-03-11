@@ -14,18 +14,38 @@ namespace PerfGcCollector
 
         static void Main(string[] args)
         {
+            if (args.Length != 1)
+            {
+                Console.WriteLine("Missing pid");
+                return;
+            }
+
+            if (!int.TryParse(args[0], out var pid))
+            {
+                Console.WriteLine("Invalid pid");
+                return;
+            }
+
             var map = new Dictionary<ulong, string>();
 
-            foreach (var line in File.ReadLines(@"E:\perf\perf-4377.map"))
-            {
-                var values = line.Split(' ', 3);
+            var perfMapFile = $"/tmp/perf-{pid}.map";
 
-                map.Add(Convert.ToUInt64(values.First(), 16), values.Last());
+            if (File.Exists(perfMapFile))
+            {
+                foreach (var line in File.ReadLines(perfMapFile))
+                {
+                    var values = line.Split(' ', 3);
+
+                    map.Add(Convert.ToUInt64(values.First(), 16), values.Last());
+                }
             }
+
+            Console.WriteLine("Loaded symbols from {0}", perfMapFile);
 
             var symbols = new SortedDictionary<ulong, string>();
 
-            using var input = File.OpenRead(@"E:\perf\perf.data");
+            //using var input = File.OpenRead(@"E:\perf\perf.data");
+            using var input = Console.OpenStandardInput();
 
             var fileHeader = input.Read<PerfPipeFileHeader>();
 
@@ -36,7 +56,6 @@ namespace PerfGcCollector
             }
 
             Console.WriteLine($"{fileHeader.Magic:x2}");
-            Console.WriteLine(fileHeader.Size);
 
             bool endOfFile = false;
 
@@ -44,8 +63,6 @@ namespace PerfGcCollector
             long currentType = 0;
 
             long sampleCount = 0;
-
-            int pid = 4377;
 
             PerfRecordIndexes indexes = null;
 
@@ -160,35 +177,35 @@ namespace PerfGcCollector
 
                             symbols.Add(perfRecordMmap2.Addr, filename);
 
-                            if (filename.Contains("libcoreclr.so"))
-                            {
-                                foreach (var line in File.ReadLines(@"E:\perf\libcoreclr.txt"))
-                                {
-                                    var values = line.Split(' ', 3);
+                            //if (filename.Contains("libcoreclr.so"))
+                            //{
+                            //    foreach (var line in File.ReadLines(@"E:\perf\libcoreclr.txt"))
+                            //    {
+                            //        var values = line.Split(' ', 3);
 
-                                    if (values[1] == "U")
-                                    {
-                                        continue;
-                                    }
+                            //        if (values[1] == "U")
+                            //        {
+                            //            continue;
+                            //        }
 
-                                    try
-                                    {
-                                        if (values[0].Trim().Length == 0)
-                                        {
-                                            continue;
-                                        }
+                            //        try
+                            //        {
+                            //            if (values[0].Trim().Length == 0)
+                            //            {
+                            //                continue;
+                            //            }
 
-                                        var addr = Convert.ToUInt64(values[0], 16);
+                            //            var addr = Convert.ToUInt64(values[0], 16);
 
-                                        map[perfRecordMmap2.Addr + addr] = values[2];
-                                        symbols[perfRecordMmap2.Addr + addr] = values[2];
-                                    }
-                                    catch (FormatException)
-                                    {
-                                        continue;
-                                    }
-                                }
-                            }
+                            //            map[perfRecordMmap2.Addr + addr] = values[2];
+                            //            symbols[perfRecordMmap2.Addr + addr] = values[2];
+                            //        }
+                            //        catch (FormatException)
+                            //        {
+                            //            continue;
+                            //        }
+                            //    }
+                            //}
                         }
 
                         //Console.WriteLine("PerfRecordMmap2: " + Encoding.ASCII.GetString(perfRecordMmap2.filename));
@@ -250,8 +267,6 @@ namespace PerfGcCollector
                 }
             }
 
-            Console.WriteLine("Done");
-            Console.ReadLine();
         }
     }
 
