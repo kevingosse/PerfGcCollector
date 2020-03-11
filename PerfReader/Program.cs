@@ -59,8 +59,13 @@ namespace PerfGcCollector
 
             bool endOfFile = false;
 
-            long expectedPosition = input.Position;
+            long expectedPosition = 0; 
             long currentType = 0;
+
+            if (input.CanSeek)
+            {
+                expectedPosition = input.Position;
+            }
 
             long sampleCount = 0;
 
@@ -68,15 +73,21 @@ namespace PerfGcCollector
 
             while (!endOfFile)
             {
-                if (input.Position != expectedPosition)
+                if (input.CanSeek)
                 {
-                    Console.WriteLine("Mismatch after reading type " + currentType);
+                    if (input.Position != expectedPosition)
+                    {
+                        Console.WriteLine("Mismatch after reading type " + currentType);
+                    }
                 }
 
                 var header = input.Read<PerfEventHeader>();
 
-                expectedPosition = input.Position + header.GetRemainingBytes();
-                currentType = header.Type;
+                if (input.CanSeek)
+                {
+                    expectedPosition = input.Position + header.GetRemainingBytes();
+                    currentType = header.Type;
+                }
 
                 switch (header.Type)
                 {
