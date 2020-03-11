@@ -105,6 +105,11 @@ namespace PerfGcCollector
 
                         break;
 
+                    case 2:
+                        Console.WriteLine("Lost events");
+                        input.Skip(header.GetRemainingBytes());
+                        break;
+
                     case 3:
                         // PERF_RECORD_COMM
                         var perfRecordComm = new PerfRecordComm(input, header);
@@ -168,7 +173,7 @@ namespace PerfGcCollector
                             symbols.Add(perfRecordMmap2.Addr, filename);
 
                             Console.WriteLine("Attempting to extract symbols for " + filename);
-                            
+
                             ReadSymbols(filename, perfRecordMmap2.Addr, symbols);
                         }
 
@@ -190,9 +195,9 @@ namespace PerfGcCollector
 
                         foreach (ulong value in Enum.GetValues(typeof(PerfEventSampleFormat)))
                         {
-                            if (((ulong) perfRecordHeaderAttr.Attr.SampleType & value) == value)
+                            if (((ulong)perfRecordHeaderAttr.Attr.SampleType & value) == value)
                             {
-                                Console.WriteLine((PerfEventSampleFormat) value);
+                                Console.WriteLine((PerfEventSampleFormat)value);
                             }
                         }
 
@@ -800,9 +805,9 @@ namespace PerfGcCollector
         public ulong Identifier => Array[_indexes.Identifier];
         public ulong Ip => Array[_indexes.Ip];
 
-        public uint Pid => (uint) (Array[_indexes.Pid] & LOW_MASK);
+        public uint Pid => (uint)(Array[_indexes.Pid] & LOW_MASK);
 
-        public uint Tid => (uint) (Array[_indexes.Tid] >> 32);
+        public uint Tid => (uint)(Array[_indexes.Tid] >> 32);
 
         public ulong Time => Array[_indexes.Time];
 
@@ -812,9 +817,9 @@ namespace PerfGcCollector
 
         public ulong StreamId => Array[_indexes.StreamId];
 
-        public uint Cpu => (uint) (Array[_indexes.Cpu] & LOW_MASK);
+        public uint Cpu => (uint)(Array[_indexes.Cpu] & LOW_MASK);
 
-        public uint Res => (uint) (Array[_indexes.Res] >> 32);
+        public uint Res => (uint)(Array[_indexes.Res] >> 32);
 
         public ulong Period => Array[_indexes.Period];
 
@@ -824,7 +829,7 @@ namespace PerfGcCollector
             {
                 var count = Array[_indexes.Callchain];
 
-                return Array.AsSpan().Slice(_indexes.Callchain, (int) count);
+                return Array.AsSpan().Slice(_indexes.Callchain, (int)count);
             }
         }
     }
