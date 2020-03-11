@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 16
 VisualStudioVersion = 16.0.29814.53
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PerfGcCollector", "PerfReader\PerfGcCollector.csproj", "{1058B19E-22B9-4517-BFC9-E40B1E1A6400}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PerfGcCollector", "PerfGcCollector\PerfGcCollector.csproj", "{1058B19E-22B9-4517-BFC9-E40B1E1A6400}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
