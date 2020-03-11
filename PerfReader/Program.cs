@@ -28,7 +28,8 @@ namespace PerfGcCollector
             }
 
             var map = new Dictionary<ulong, string>();
-
+            var symbols = new SortedDictionary<ulong, string>();
+            
             var perfMapFile = $"/tmp/perf-{pid}.map";
 
             if (File.Exists(perfMapFile))
@@ -38,12 +39,11 @@ namespace PerfGcCollector
                     var values = line.Split(' ', 3);
 
                     map.Add(Convert.ToUInt64(values.First(), 16), values.Last());
+                    symbols.Add(Convert.ToUInt64(values.First(), 16), values.Last());
                 }
             }
 
             Console.WriteLine($"Loaded {map.Count} symbols from {perfMapFile}");
-
-            var symbols = new SortedDictionary<ulong, string>();
 
             using var input = Console.OpenStandardInput();
 
@@ -100,7 +100,7 @@ namespace PerfGcCollector
 
                             symbols.Add(perfRecordMmap.Addr, filename);
 
-                            ReadSymbols(filename, perfRecordMmap.Addr, symbols);
+                            ReadSymbols(filename, perfRecordMmap.Addr, perfRecordMmap.Pgoff, perfRecordMmap.Len, symbols);
                         }
 
                         break;
@@ -157,7 +157,7 @@ namespace PerfGcCollector
                                     }
                                 }
 
-                                Console.WriteLine(symbol);
+                                Console.WriteLine($"{frame:x2} {symbol}");
                             }
                         }
 
@@ -172,9 +172,7 @@ namespace PerfGcCollector
 
                             symbols.Add(perfRecordMmap2.Addr, filename);
 
-                            Console.WriteLine("Attempting to extract symbols for " + filename);
-
-                            ReadSymbols(filename, perfRecordMmap2.Addr, symbols);
+                            ReadSymbols(filename, perfRecordMmap2.Addr, perfRecordMmap2.Pgoff, perfRecordMmap2.Len, symbols);
                         }
 
                         break;
@@ -256,7 +254,7 @@ namespace PerfGcCollector
             return Encoding.ASCII.GetString(data.AsSpan(0, length));
         }
 
-        private static void ReadSymbols(string filename, ulong baseAddress, SortedDictionary<ulong, string> symbols)
+        private static void ReadSymbols(string filename, ulong baseAddress, ulong offset, ulong length, SortedDictionary<ulong, string> symbols)
         {
             if (!File.Exists(filename))
             {
@@ -273,6 +271,8 @@ namespace PerfGcCollector
                 CreateNoWindow = true
             });
 
+            int count = 0;
+            
             while (!process.StandardOutput.EndOfStream)
             {
                 var line = process.StandardOutput.ReadLine();
@@ -291,14 +291,23 @@ namespace PerfGcCollector
                     }
 
                     var addr = Convert.ToUInt64(values[0], 16);
+                    
+                    if (addr >= offset && addr < (offset + length))
+                    {
+                        var destAddr = baseAddress + addr - offset;
+                        symbols[destAddr] = values[2];
 
-                    symbols[baseAddress + addr] = values[2];
+                        count++;
+                    }
                 }
                 catch (FormatException)
                 {
                     continue;
                 }
             }
+            
+            Console.WriteLine($"{count} symbols loaded for {filename} at base address {baseAddress:x2}");
+
         }
     }
 
